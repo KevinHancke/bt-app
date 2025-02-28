@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 
-st.title("Backtesting Application")
+st.title("Moon Tester")
 timeframe = st.selectbox("Select Timeframe", ["1D", "1h", "15min"])
 ticker = st.selectbox("Select Ticker", ["BTC/USD", "SOL/USD", "JUP/USD"])
 
@@ -14,35 +14,46 @@ if st.button("Load Data"):
         params={"timeframe": timeframe, "ticker": ticker}
     )
     if response.status_code == 200:
-        data_df = pd.DataFrame(response.json())
-        # Convert time to datetime
-        data_df['time'] = pd.to_datetime(data_df['time'])
+        # Store the full dataset
+        full_data_df = pd.DataFrame(response.json())
+        full_data_df['time'] = pd.to_datetime(full_data_df['time'])
+        st.session_state['full_data'] = full_data_df
+        
+        # Create a date-filtered display dataset
+        display_df = full_data_df.copy()
+        
         # Add date range selector based on min and max dates in the data
-        min_date = data_df['time'].min().date()
-        max_date = data_df['time'].max().date()
+        min_date = display_df['time'].min().date()
+        max_date = display_df['time'].max().date()
         date_range = st.date_input("Select Date Range", [min_date, max_date])
+        
         if isinstance(date_range, list) and len(date_range) == 2:
             start_date, end_date = date_range
-            data_df = data_df[(data_df['time'].dt.date >= start_date) & (data_df['time'].dt.date <= end_date)]
-        # Limit to 100 data points (latest 100 rows)
-        if len(data_df) > 100:
-            data_df = data_df.tail(100)
-        st.session_state['loaded_data'] = data_df
-        st.success("Data Loaded!")
+            display_df = display_df[(display_df['time'].dt.date >= start_date) & (display_df['time'].dt.date <= end_date)]
+            # Store the date range for future use
+            st.session_state['date_range'] = (start_date, end_date)
+        
+        # Limit to 100 data points for display only
+        if len(display_df) > 100:
+            display_df = display_df.tail(100)
+        
+        st.session_state['display_data'] = display_df
+        st.success(f"Data Loaded! Full dataset: {len(full_data_df)} bars, Display: {len(display_df)} bars")
+        
         # Render initial candlestick chart
         fig = go.Figure(data=[go.Candlestick(
-            x=data_df['time'],
-            open=data_df['open'],
-            high=data_df['high'],
-            low=data_df['low'],
-            close=data_df['close']
+            x=display_df['time'],
+            open=display_df['open'],
+            high=display_df['high'],
+            low=display_df['low'],
+            close=display_df['close']
         )])
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.error(f"Error fetching data: {response.text}")
 
 # UI to apply indicator if data is loaded
-if 'loaded_data' in st.session_state:
+if 'full_data' in st.session_state:
     st.subheader("Manage Indicators")
     if 'indicators' not in st.session_state:
         st.session_state['indicators'] = []  # Each element: dict with type, params, active flag
@@ -78,27 +89,42 @@ if 'loaded_data' in st.session_state:
         }
         response = requests.post("http://localhost:8000/api/apply_indicators", json=payload)
         if response.status_code == 200:
-            updated_df = pd.DataFrame(response.json())
-            updated_df['time'] = pd.to_datetime(updated_df['time'])
-            if len(updated_df) > 100:
-                updated_df = updated_df.tail(100)
-            st.session_state['loaded_data'] = updated_df
+            # Update the full dataset with indicators
+            full_data_updated = pd.DataFrame(response.json())
+            full_data_updated['time'] = pd.to_datetime(full_data_updated['time'])
+            st.session_state['full_data'] = full_data_updated
+            
+            # Apply date filtering to match previous display
+            display_updated = full_data_updated.copy()
+            if 'date_range' in st.session_state:
+                start_date, end_date = st.session_state['date_range']
+                display_updated = display_updated[(display_updated['time'].dt.date >= start_date) & 
+                                                 (display_updated['time'].dt.date <= end_date)]
+            
+            # Limit to 100 data points for display only
+            if len(display_updated) > 100:
+                display_updated = display_updated.tail(100)
+                
+            st.session_state['display_data'] = display_updated
+            
+            # Render candlestick chart with indicators
             fig = go.Figure()
             fig.add_trace(go.Candlestick(
-                x=updated_df['time'],
-                open=updated_df['open'],
-                high=updated_df['high'],
-                low=updated_df['low'],
-                close=updated_df['close'],
+                x=display_updated['time'],
+                open=display_updated['open'],
+                high=display_updated['high'],
+                low=display_updated['low'],
+                close=display_updated['close'],
                 name="Price"
             ))
-            # Overlay each applied indicator: assume naming as INDICATOR_length (upper-case)
+            
+            # Overlay each applied indicator on the chart
             for ind in active_indicators:
                 col_name = f"{ind['type'].upper()}_{ind['params'].get('length')}"
-                if col_name in updated_df.columns:
+                if col_name in display_updated.columns:
                     fig.add_trace(go.Scatter(
-                        x=updated_df['time'],
-                        y=updated_df[col_name],
+                        x=display_updated['time'],
+                        y=display_updated[col_name],
                         mode='lines',
                         name=col_name
                     ))
@@ -134,11 +160,33 @@ if 'loaded_data' in st.session_state:
             }
             st.session_state['buy_conditions'].append(condition)
             st.success("Buy condition added")
-    st.write("Current Buy Conditions:", st.session_state.get('buy_conditions'))
+    
+    # Display and manage existing buy conditions
+    if st.session_state.get('buy_conditions'):
+        st.write(f"Current Buy Conditions ({len(st.session_state['buy_conditions'])})")
+        for i, cond in enumerate(st.session_state['buy_conditions']):
+            col1, col2 = st.columns([4, 1])
+            condition_text = (f"{cond['left_operand']['column']} (shift {cond['left_operand']['shift']}) "
+                            f"{cond['comparator']} "
+                            f"{cond['right_operand']['column']} (shift {cond['right_operand']['shift']})")
+            col1.text(f"{i+1}. {condition_text}")
+            # Add delete button for each condition
+            if col2.button(f"Delete", key=f"del_buy_{i}"):
+                st.session_state['buy_conditions'].pop(i)
+                st.experimental_rerun()
+        
+        # Add a button to clear all conditions
+        if st.button("Clear All Buy Conditions"):
+            st.session_state['buy_conditions'] = []
+            st.success("All buy conditions cleared")
+            st.experimental_rerun()
+    else:
+        st.info("No buy conditions defined yet")
 
     st.subheader("Add Sell Conditions")
     if 'sell_conditions' not in st.session_state:
         st.session_state['sell_conditions'] = []
+    
     with st.form(key='sell_condition_form'):
         sell_left = st.selectbox("Sell Condition Left Operand", options=operand_options, key='sell_left')
         sell_left_shift = st.number_input("Left Operand Shift", min_value=0, value=0, key='sell_left_shift')
@@ -154,7 +202,28 @@ if 'loaded_data' in st.session_state:
             }
             st.session_state['sell_conditions'].append(condition)
             st.success("Sell condition added")
-    st.write("Current Sell Conditions:", st.session_state.get('sell_conditions'))
+    
+    # Display and manage existing sell conditions
+    if st.session_state.get('sell_conditions'):
+        st.write(f"Current Sell Conditions ({len(st.session_state['sell_conditions'])})")
+        for i, cond in enumerate(st.session_state['sell_conditions']):
+            col1, col2 = st.columns([4, 1])
+            condition_text = (f"{cond['left_operand']['column']} (shift {cond['left_operand']['shift']}) "
+                            f"{cond['comparator']} "
+                            f"{cond['right_operand']['column']} (shift {cond['right_operand']['shift']})")
+            col1.text(f"{i+1}. {condition_text}")
+            # Add delete button for each condition
+            if col2.button(f"Delete", key=f"del_sell_{i}"):
+                st.session_state['sell_conditions'].pop(i)
+                st.experimental_rerun()
+        
+        # Add a button to clear all conditions
+        if st.button("Clear All Sell Conditions"):
+            st.session_state['sell_conditions'] = []
+            st.success("All sell conditions cleared")
+            st.experimental_rerun()
+    else:
+        st.info("No sell conditions defined yet")
 
     st.subheader("Run Backtest")
     tp_value = st.number_input("Take Profit %", value=4)
@@ -162,122 +231,147 @@ if 'loaded_data' in st.session_state:
     account_size = st.number_input("Account Size", value=10000)
     risk_amt = st.number_input("Risk Amount %", value=1.0)
     if st.button("Run Backtest"):
-        # Convert loaded_data Timestamps to strings for JSON serialization
-        loaded_data_serializable = st.session_state['loaded_data'].copy()
-        loaded_data_serializable['time'] = loaded_data_serializable['time'].apply(lambda x: x.isoformat())
-        payload = {
-            "backtestParams": {
-                "tp": tp_value,
-                "sl": sl_value,
-                "account_size": account_size,
-                "risk_amt": risk_amt,
-                "buy_conditions": st.session_state.get('buy_conditions', []),
-                "sell_conditions": st.session_state.get('sell_conditions', [])
-            },
-            "preparedDataframe": loaded_data_serializable.to_dict(orient='records')
-        }
-        response = requests.post("http://localhost:8000/custom_backtest", json=payload)
-        if response.status_code == 200:
-            result = response.json()
-            # Display Backtest Summary using metrics
-            st.subheader("Backtest Summary")
-            summary = result.get("summary", {})
-            if summary:
-                cols = st.columns(3)
-                for idx, (key, value) in enumerate(summary.items()):
-                    col = cols[idx % 3]
-                    # Format numbers nicely if possible
-                    if isinstance(value, (int, float)):
-                        display_value = round(value, 2)
-                    else:
-                        display_value = value
-                    col.metric(label=key.replace("_", " ").title(), value=display_value)
-            else:
-                st.write("No summary available")
-            # Get markers DataFrame from result
-            markers = pd.DataFrame(result.get("markers", []))
-            # Create chart using the loaded data
-            loaded_data = st.session_state['loaded_data']
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=loaded_data['time'],
-                open=loaded_data['open'],
-                high=loaded_data['high'],
-                low=loaded_data['low'],
-                close=loaded_data['close'],
-                name="Price"
-            ))
-            if not markers.empty:
-                # Convert marker times to datetime
-                markers['time'] = pd.to_datetime(markers['time'])
-                # Map shape values to Plotly marker symbols.
-                def map_shape(shape):
-                    if shape == 'arrowUp':
-                        return 'triangle-up'
-                    elif shape == 'arrowDown':
-                        return 'triangle-down'
-                    elif shape == 'circle':
-                        return 'circle'
-                    else:
-                        return 'circle'
-                markers['symbol'] = markers['shape'].apply(map_shape)
-                # Map textposition values to valid Plotly values
-                def map_textposition(pos):
-                    if pos == 'belowBar':
-                        return 'bottom center'
-                    elif pos == 'aboveBar':
-                        return 'top center'
-                    return pos
-                # Add a trace for each marker
-                for _, row in markers.iterrows():
-                    fig.add_trace(go.Scatter(
-                        x=[row['time']],
-                        y=[row['price']],
-                        mode='markers+text',
-                        marker=dict(symbol=row['symbol'], color=row['color'], size=12),
-                        text=[row['text']],
-                        textposition=map_textposition(row['position']),
-                        name=f"{row['type']} marker"
-                    ))
-            fig.update_layout(xaxis_title="Time", yaxis_title="Price")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # --- New: Plot Account Sizes Over Time ---
-            # Convert backtest stats to DataFrame for plotting
-            backtest_stats = pd.DataFrame(result.get("backtest_result", []))
-            if not backtest_stats.empty:
-                # Use trade sequence as x-axis if time is not available
-                if "entry_time" in backtest_stats.columns:
-                    backtest_stats['entry_time'] = pd.to_datetime(backtest_stats['entry_time'])
-                    x_axis = backtest_stats['entry_time']
-                else:
-                    x_axis = backtest_stats.index
-                # Create a line chart for account sizes
-                line_fig = go.Figure()
-                if "account_size_quote" in backtest_stats.columns:
-                    line_fig.add_trace(go.Scatter(
-                        x=x_axis,
-                        y=backtest_stats["account_size_quote"],
-                        mode="lines+markers",
-                        name="Account Size Quote"
-                    ))
-                if "account_size_base" in backtest_stats.columns and "exit_price" in backtest_stats.columns:
-                    # Calculate account_size_base_value if not present
-                    if "account_size_base_value" not in backtest_stats.columns:
-                        backtest_stats["account_size_base_value"] = backtest_stats["account_size_base"] * backtest_stats["exit_price"]
-                    line_fig.add_trace(go.Scatter(
-                        x=x_axis,
-                        y=backtest_stats["account_size_base_value"],
-                        mode="lines+markers",
-                        name="Account Size Base Value"
-                    ))
-                line_fig.update_layout(
-                    title="Account Sizes Over Time",
-                    xaxis_title="Trade Entry Time",
-                    yaxis_title="Account Size Value",
-                )
-                st.plotly_chart(line_fig, use_container_width=True)
-            else:
-                st.write("No backtest stats available for account sizes.")
+        if 'full_data' not in st.session_state:
+            st.error("Please load data first!")
         else:
-            st.error(f"Error running backtest: {response.text}")
+            # Use the full dataset for backtesting
+            full_data_serializable = st.session_state['full_data'].copy()
+            full_data_serializable['time'] = full_data_serializable['time'].apply(lambda x: x.isoformat())
+            
+            # Debug information
+            st.info(f"Running backtest on {len(full_data_serializable)} bars with {len(st.session_state.get('buy_conditions', []))} buy conditions and {len(st.session_state.get('sell_conditions', []))} sell conditions")
+            
+            payload = {
+                "backtestParams": {
+                    "tp": tp_value,
+                    "sl": sl_value,
+                    "account_size": account_size,
+                    "risk_amt": risk_amt,
+                    "buy_conditions": st.session_state.get('buy_conditions', []),
+                    "sell_conditions": st.session_state.get('sell_conditions', [])
+                },
+                "preparedDataframe": full_data_serializable.to_dict(orient='records')
+            }
+            
+            with st.spinner('Running backtest...'):
+                response = requests.post("http://localhost:8000/custom_backtest", json=payload)
+            
+            if response.status_code == 200:
+                result = response.json()
+                # Display Backtest Summary
+                st.subheader("Backtest Summary")
+                summary = result.get("summary", {})
+                if summary:
+                    cols = st.columns(3)
+                    for idx, (key, value) in enumerate(summary.items()):
+                        col = cols[idx % 3]
+                        # Format numbers nicely if possible
+                        if isinstance(value, (int, float)):
+                            display_value = round(value, 2)
+                        else:
+                            display_value = value
+                        col.metric(label=key.replace("_", " ").title(), value=display_value)
+                else:
+                    st.write("No summary available")
+                # Get markers DataFrame from result
+                markers = pd.DataFrame(result.get("markers", []))
+                # Create chart using the display data (not the full dataset)
+                display_data = st.session_state['display_data']
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(
+                    x=display_data['time'],
+                    open=display_data['open'],
+                    high=display_data['high'],
+                    low=display_data['low'],
+                    close=display_data['close'],
+                    name="Price"
+                ))
+                
+                # Filter markers to only those in the display data's time range
+                if not markers.empty:
+                    markers['time'] = pd.to_datetime(markers['time'])
+                    
+                    # Get the time range of the displayed data
+                    min_display_time = display_data['time'].min()
+                    max_display_time = display_data['time'].max()
+                    
+                    # Filter markers to only those within the displayed time window
+                    visible_markers = markers[
+                        (markers['time'] >= min_display_time) & 
+                        (markers['time'] <= max_display_time)
+                    ]
+                    
+                    st.write(f"Showing {len(visible_markers)} of {len(markers)} total trade signals in the chart view")
+                    
+                    # Map shape values to Plotly marker symbols
+                    def map_shape(shape):
+                        if shape == 'arrowUp':
+                            return 'triangle-up'
+                        elif shape == 'arrowDown':
+                            return 'triangle-down'
+                        elif shape == 'circle':
+                            return 'circle'
+                        else:
+                            return 'circle'
+                    visible_markers['symbol'] = visible_markers['shape'].apply(map_shape)
+                    
+                    # Map textposition values to valid Plotly values
+                    def map_textposition(pos):
+                        if pos == 'belowBar':
+                            return 'bottom center'
+                        elif pos == 'aboveBar':
+                            return 'top center'
+                        return pos
+                    # Add a trace for each visible marker
+                    for _, row in visible_markers.iterrows():
+                        fig.add_trace(go.Scatter(
+                            x=[row['time']],
+                            y=[row['price']],
+                            mode='markers+text',
+                            marker=dict(symbol=row['symbol'], color=row['color'], size=12),
+                            text=[row['text']],
+                            textposition=map_textposition(row['position']),
+                            name=f"{row['type']} marker"
+                        ))
+                fig.update_layout(xaxis_title="Time", yaxis_title="Price")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # --- New: Plot Account Sizes Over Time ---
+                # Convert backtest stats to DataFrame for plotting
+                backtest_stats = pd.DataFrame(result.get("backtest_result", []))
+                if not backtest_stats.empty:
+                    # Use trade sequence as x-axis if time is not available
+                    if "entry_time" in backtest_stats.columns:
+                        backtest_stats['entry_time'] = pd.to_datetime(backtest_stats['entry_time'])
+                        x_axis = backtest_stats['entry_time']
+                    else:
+                        x_axis = backtest_stats.index
+                    # Create a line chart for account sizes
+                    line_fig = go.Figure()
+                    if "account_size_quote" in backtest_stats.columns:
+                        line_fig.add_trace(go.Scatter(
+                            x=x_axis,
+                            y=backtest_stats["account_size_quote"],
+                            mode="lines",
+                            name="Account Size Quote"
+                        ))
+                    if "account_size_base" in backtest_stats.columns and "exit_price" in backtest_stats.columns:
+                        # Calculate account_size_base_value if not present
+                        if "account_size_base_value" not in backtest_stats.columns:
+                            backtest_stats["account_size_base_value"] = backtest_stats["account_size_base"] * backtest_stats["exit_price"]
+                        line_fig.add_trace(go.Scatter(
+                            x=x_axis,
+                            y=backtest_stats["account_size_base_value"],
+                            mode="lines",
+                            name="Account Size Base Value"
+                        ))
+                    line_fig.update_layout(
+                        title="Account Sizes Over Time",
+                        xaxis_title="Trade Entry Time",
+                        yaxis_title="Account Size Value",
+                    )
+                    st.plotly_chart(line_fig, use_container_width=True)
+                else:
+                    st.write("No backtest stats available for account sizes.")
+            else:
+                st.error(f"Error running backtest: {response.text}")

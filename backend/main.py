@@ -75,7 +75,10 @@ async def apply_indicators(request: Request):
             raise Exception(f'Ticker {ticker} not found.')
 
         df = load_csv(ticker_files[ticker])
+        print(f"Loaded {len(df)} rows of raw data from CSV")
+        
         df = resample_df(df, timeframe)
+        print(f"Resampled to {timeframe} timeframe, resulting in {len(df)} rows")
 
         for indicator in indicators:
             # Apply indicators as before
@@ -88,8 +91,9 @@ async def apply_indicators(request: Request):
         # Replace infinite values with NaN and fill NaN values
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
         df.fillna(0, inplace=True)
-
+        print(df)
         print('DataFrame columns after applying indicators:', df.columns.tolist())
+        print(f"Final DataFrame has {len(df)} rows")
 
         df.reset_index(inplace=True)
         df['time'] = df['time'].astype(str)
@@ -110,8 +114,8 @@ async def prepare_and_backtest(request: Request):
             raise Exception('Prepared DataFrame is empty. Please prepare data before backtesting.')
         df = pd.DataFrame(prepared_data)
 
-        print('Received backtest parameters:', backtest_params)
-        print('Received prepared DataFrame with length:', len(prepared_data))
+        print(f'Received backtest parameters: {backtest_params}')
+        print(f'Received prepared DataFrame with length: {len(prepared_data)} rows')
 
         df['time'] = pd.to_datetime(df['time'])
         df.set_index('time', inplace=True)
