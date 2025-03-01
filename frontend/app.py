@@ -95,7 +95,7 @@ if 'full_data' in st.session_state:
             
             # Update all data stores to ensure consistency
             st.session_state['full_data'] = full_data_updated
-            st.session_state['loaded_data'] = full_data_updated  # <-- Add this line to update loaded_data too
+            st.session_state['loaded_data'] = full_data_updated  
             
             # Display the columns for debugging
             st.write(f"Available columns after applying indicators: {', '.join(full_data_updated.columns)}")
@@ -113,9 +113,15 @@ if 'full_data' in st.session_state:
                 
             st.session_state['display_data'] = display_updated
             
-            # Render candlestick chart with indicators
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(
+            # Separate indicators into overlay and separate indicators
+            overlay_indicators = ['SMA', 'EMA', 'VWAP', 'BBL', 'BBM', 'BBU']
+            oscillator_indicators = ['RSI', 'MACD']
+            
+            # First, create the main price chart with overlay indicators
+            fig_price = go.Figure()
+            
+            # Add candlestick chart
+            fig_price.add_trace(go.Candlestick(
                 x=display_updated['time'],
                 open=display_updated['open'],
                 high=display_updated['high'],
@@ -131,7 +137,6 @@ if 'full_data' in st.session_state:
                 'rsi': 'rgba(39, 174, 96, 0.9)',     # Green
                 'macd': 'rgba(230, 126, 34, 0.9)',   # Orange
                 'vwap': 'rgba(241, 196, 15, 0.9)',   # Yellow
-                # Bollinger Bands use dynamic colors per group
             }
             
             # Find all Bollinger Band components
@@ -146,9 +151,6 @@ if 'full_data' in st.session_state:
                     bb_groups[length] = []
                 bb_groups[length].append(col)
             
-            # Track which indicators have been plotted
-            plotted_indicators = set()
-            
             # Plot grouped Bollinger Bands with consistent styling
             for length, cols in bb_groups.items():
                 # Choose a color for this BB group
@@ -162,7 +164,7 @@ if 'full_data' in st.session_state:
                         line_style = 'dash'
                         
                     # Add to plot with consistent styling
-                    fig.add_trace(go.Scatter(
+                    fig_price.add_trace(go.Scatter(
                         x=display_updated['time'],
                         y=display_updated[col],
                         mode='lines',
@@ -171,20 +173,26 @@ if 'full_data' in st.session_state:
                         legendgroup=f"BB_{length}",
                         showlegend=col.startswith('BBM_')  # Only show legend for middle band
                     ))
-                    
-                    plotted_indicators.add(col)
             
-            # Plot other indicators with distinct colors
+            # Plot overlay indicators on the price chart
             for ind in active_indicators:
-                # Skip Bollinger Bands (already plotted above)
-                if ind['type'] == 'bollinger':
+                ind_type = ind['type']
+                
+                # Skip oscillator indicators - they'll be in separate charts
+                if any(ind_type.upper().startswith(osc) for osc in oscillator_indicators):
+                    continue
+                    
+                # Skip Bollinger Bands - already plotted
+                if ind_type == 'bollinger':
                     continue
                 
+                length = ind['params'].get('length', 0)
+                col_name = f"{ind_type.upper()}_{length}"
+                
                 # Get a base color for this indicator type
-                base_color = color_map.get(ind['type'], f'rgba({hash(ind["type"]) % 255}, {(hash(ind["type"]) * 13) % 255}, {(hash(ind["type"]) * 23) % 255}, 0.9)')
+                base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
                 
                 # For multiple indicators of the same type, slightly modify the color
-                length = ind['params'].get('length', 0)
                 color_variance = 0.7 + (length % 5) * 0.1  # Small color variation based on length
                 
                 # Create a color with slight variation
@@ -194,18 +202,176 @@ if 'full_data' in st.session_state:
                 b = min(255, int(b * color_variance))
                 indicator_color = f'rgba({r}, {g}, {b}, 0.9)'
                 
-                col_name = f"{ind['type'].upper()}_{ind['params'].get('length')}"
                 if col_name in display_updated.columns:
-                    fig.add_trace(go.Scatter(
+                    fig_price.add_trace(go.Scatter(
                         x=display_updated['time'],
                         y=display_updated[col_name],
                         mode='lines',
                         line=dict(color=indicator_color, width=1.5),
                         name=col_name
                     ))
+            
+            # Check if we have any oscillator indicators that need separate panels
+            has_rsi = any(ind['type'] == 'rsi' for ind in active_indicators)
+            # Add more oscillator checks as needed (MACD, etc.)
+            
+            # Import make_subplots if needed
+            from plotly.subplots import make_subplots
+            
+            # Create subplot structure based on which oscillators are present
+            rows = 1 + (1 if has_rsi else 0)  # Main chart + optional RSI
+            
+            # Set row heights: main chart gets 70%, oscillators share the rest
+            row_heights = [0.7] + [0.3] if rows > 1 else [1.0]
+            
+            # Create the figure with subplots
+            fig = make_subplots(
+                rows=rows, 
+                cols=1,
+                shared_xaxes=True,  # Share x-axis between subplots
+                vertical_spacing=0.03,
+                row_heights=row_heights,
+                subplot_titles=["Price" + (" with Indicators" if rows > 1 else "")]
+                + (["RSI"] if has_rsi else [])
+            )
+            
+            # Add candlestick to main chart (first row)
+            fig.add_trace(
+                go.Candlestick(
+                    x=display_updated['time'],
+                    open=display_updated['open'],
+                    high=display_updated['high'],
+                    low=display_updated['low'],
+                    close=display_updated['close'],
+                    name="Price"
+                ),
+                row=1, col=1
+            )
+            
+            # Plot Bollinger Bands on main chart
+            # ...existing BB plotting code, but add row=1, col=1 to each add_trace call...
+            for length, cols in bb_groups.items():
+                bb_color = f"rgba({hash(length) % 255}, {(hash(length) * 7) % 255}, {(hash(length) * 13) % 255}, 0.7)"
+                
+                for col in sorted(cols):
+                    line_style = 'solid'
+                    if col.startswith('BBL_'):
+                        line_style = 'dash'
+                    elif col.startswith('BBU_'):
+                        line_style = 'dash'
+                        
+                    fig.add_trace(
+                        go.Scatter(
+                            x=display_updated['time'],
+                            y=display_updated[col],
+                            mode='lines',
+                            line=dict(color=bb_color, dash=line_style, width=1),
+                            name=f"BB_{length}" if col.startswith('BBM_') else f"{col}",
+                            legendgroup=f"BB_{length}",
+                            showlegend=col.startswith('BBM_')
+                        ),
+                        row=1, col=1  # Always on main price chart
+                    )
+            
+            # Plot overlay indicators on the price chart
+            for ind in active_indicators:
+                ind_type = ind['type']
+                length = ind['params'].get('length', 0)
+                
+                # Skip oscillators - they'll be in their own rows
+                if ind_type == 'rsi':
+                    continue
+                # Skip Bollinger - already handled above
+                if ind_type == 'bollinger':
+                    continue
+                
+                col_name = f"{ind_type.upper()}_{length}"
+                
+                # Get color with variance
+                # ...existing color code...
+                base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
+                
+                # For multiple indicators of the same type, slightly modify the color
+                color_variance = 0.7 + (length % 5) * 0.1
+                
+                # Create a color with slight variation
+                r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
+                r = min(255, int(r * color_variance))
+                g = min(255, int(g * color_variance))
+                b = min(255, int(b * color_variance))
+                indicator_color = f'rgba({r}, {g}, {b}, 0.9)'
+                
+                if col_name in display_updated.columns:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=display_updated['time'],
+                            y=display_updated[col_name],
+                            mode='lines',
+                            line=dict(color=indicator_color, width=1.5),
+                            name=col_name
+                        ),
+                        row=1, col=1  # Always on the main price chart
+                    )
+            
+            # Add RSI in its own panel if it exists
+            rsi_row = 2  # RSI would be in the second row
+            for ind in active_indicators:
+                if ind['type'] == 'rsi' and has_rsi:
+                    length = ind['params'].get('length', 14)
+                    col_name = f"RSI_{length}"
                     
-            fig.update_layout(xaxis_title="Time", yaxis_title="Price")
+                    if col_name in display_updated.columns:
+                        # Add RSI line
+                        fig.add_trace(
+                            go.Scatter(
+                                x=display_updated['time'],
+                                y=display_updated[col_name],
+                                mode='lines',
+                                line=dict(color='rgba(39, 174, 96, 0.9)', width=1.5),
+                                name=col_name
+                            ),
+                            row=rsi_row, col=1
+                        )
+                        
+                        # Add reference lines for RSI - fixed to use exact dates instead of normalized values
+                        min_date = display_updated['time'].min()
+                        max_date = display_updated['time'].max()
+                        
+                        # Reference lines for RSI (30 and 70)
+                        for level in [30, 70]:
+                            fig.add_shape(
+                                type="line", 
+                                x0=min_date, 
+                                x1=max_date,
+                                y0=level, 
+                                y1=level,
+                                line=dict(color="gray", width=1, dash="dash"),
+                                row=rsi_row, col=1
+                            )
+                        
+                        # Set y-axis range for RSI
+                        fig.update_yaxes(range=[0, 100], row=rsi_row, col=1)
+            
+            # Update layout for the entire figure
+            fig.update_layout(
+                height=600 if rows > 1 else 500,  # Taller if we have subplots
+                xaxis_rangeslider_visible=False,
+                yaxis_autorange=True,
+                margin=dict(t=30, b=30, l=30, r=30)
+            )
+            
+            # Ensure x-axis matches the data range exactly
+            fig.update_xaxes(
+                range=[display_updated['time'].min(), display_updated['time'].max()],
+                autorange=False  # Disable autorange to use our explicit range
+            )
+            
+            # Display the unified chart with shared x-axis
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Remove the separate RSI chart code - we already have it in the subplot
+            # The shared x-axis chart above is sufficient
+            
         else:
             st.error(f"Error applying indicators: {response.text}")
 
