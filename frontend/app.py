@@ -92,7 +92,13 @@ if 'full_data' in st.session_state:
             # Update the full dataset with indicators
             full_data_updated = pd.DataFrame(response.json())
             full_data_updated['time'] = pd.to_datetime(full_data_updated['time'])
+            
+            # Update all data stores to ensure consistency
             st.session_state['full_data'] = full_data_updated
+            st.session_state['loaded_data'] = full_data_updated  # <-- Add this line to update loaded_data too
+            
+            # Display the columns for debugging
+            st.write(f"Available columns after applying indicators: {', '.join(full_data_updated.columns)}")
             
             # Apply date filtering to match previous display
             display_updated = full_data_updated.copy()
@@ -118,16 +124,86 @@ if 'full_data' in st.session_state:
                 name="Price"
             ))
             
-            # Overlay each applied indicator on the chart
+            # Create a color mapping for indicator types
+            color_map = {
+                'sma': 'rgba(46, 134, 193, 0.9)',    # Blue
+                'ema': 'rgba(142, 68, 173, 0.9)',    # Purple
+                'rsi': 'rgba(39, 174, 96, 0.9)',     # Green
+                'macd': 'rgba(230, 126, 34, 0.9)',   # Orange
+                'vwap': 'rgba(241, 196, 15, 0.9)',   # Yellow
+                # Bollinger Bands use dynamic colors per group
+            }
+            
+            # Find all Bollinger Band components
+            bb_columns = {col: col.split('_')[0] for col in display_updated.columns 
+                         if col.startswith(('BBL_', 'BBM_', 'BBU_'))}
+            
+            # Group BB columns by their length parameter
+            bb_groups = {}
+            for col, prefix in bb_columns.items():
+                length = col.split('_')[1]
+                if length not in bb_groups:
+                    bb_groups[length] = []
+                bb_groups[length].append(col)
+            
+            # Track which indicators have been plotted
+            plotted_indicators = set()
+            
+            # Plot grouped Bollinger Bands with consistent styling
+            for length, cols in bb_groups.items():
+                # Choose a color for this BB group
+                bb_color = f"rgba({hash(length) % 255}, {(hash(length) * 7) % 255}, {(hash(length) * 13) % 255}, 0.7)"
+                
+                for col in sorted(cols):  # Sort to ensure consistent order (BBL, BBM, BBU)
+                    line_style = 'solid'
+                    if col.startswith('BBL_'):
+                        line_style = 'dash'
+                    elif col.startswith('BBU_'):
+                        line_style = 'dash'
+                        
+                    # Add to plot with consistent styling
+                    fig.add_trace(go.Scatter(
+                        x=display_updated['time'],
+                        y=display_updated[col],
+                        mode='lines',
+                        line=dict(color=bb_color, dash=line_style, width=1),
+                        name=f"BB_{length}" if col.startswith('BBM_') else f"{col}",
+                        legendgroup=f"BB_{length}",
+                        showlegend=col.startswith('BBM_')  # Only show legend for middle band
+                    ))
+                    
+                    plotted_indicators.add(col)
+            
+            # Plot other indicators with distinct colors
             for ind in active_indicators:
+                # Skip Bollinger Bands (already plotted above)
+                if ind['type'] == 'bollinger':
+                    continue
+                
+                # Get a base color for this indicator type
+                base_color = color_map.get(ind['type'], f'rgba({hash(ind["type"]) % 255}, {(hash(ind["type"]) * 13) % 255}, {(hash(ind["type"]) * 23) % 255}, 0.9)')
+                
+                # For multiple indicators of the same type, slightly modify the color
+                length = ind['params'].get('length', 0)
+                color_variance = 0.7 + (length % 5) * 0.1  # Small color variation based on length
+                
+                # Create a color with slight variation
+                r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
+                r = min(255, int(r * color_variance))
+                g = min(255, int(g * color_variance))
+                b = min(255, int(b * color_variance))
+                indicator_color = f'rgba({r}, {g}, {b}, 0.9)'
+                
                 col_name = f"{ind['type'].upper()}_{ind['params'].get('length')}"
                 if col_name in display_updated.columns:
                     fig.add_trace(go.Scatter(
                         x=display_updated['time'],
                         y=display_updated[col_name],
                         mode='lines',
+                        line=dict(color=indicator_color, width=1.5),
                         name=col_name
                     ))
+                    
             fig.update_layout(xaxis_title="Time", yaxis_title="Price")
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -139,11 +215,21 @@ if 'full_data' in st.session_state:
 
     # Prepare options for buy/sell condition operand selectboxes.
     default_fields = ["open", "high", "low", "close"]
-    if 'loaded_data' in st.session_state:
-        additional_fields = [col for col in st.session_state['loaded_data'].columns if col not in default_fields and col != "time"]
-        operand_options = default_fields + additional_fields
-    else:
-        operand_options = default_fields
+    indicator_options = []
+    
+    # Get all available columns from full data if it exists
+    if 'full_data' in st.session_state:
+        full_data_cols = list(st.session_state['full_data'].columns)
+        indicator_options = [col for col in full_data_cols 
+                            if col not in default_fields 
+                            and col != "time"
+                            and not col.startswith("buy_") 
+                            and not col.startswith("sell_")]
+    
+    operand_options = default_fields + indicator_options
+    
+    # Debug what columns are available
+    st.write(f"Condition options: {operand_options}")
 
     with st.form(key='buy_condition_form'):
         buy_left = st.selectbox("Buy Condition Left Operand", options=operand_options, key='buy_left')

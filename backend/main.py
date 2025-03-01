@@ -95,6 +95,11 @@ async def apply_indicators(request: Request):
         print('DataFrame columns after applying indicators:', df.columns.tolist())
         print(f"Final DataFrame has {len(df)} rows")
 
+        # Debugging: Print all columns in the dataframe
+        print("All columns in dataframe after applying indicators:")
+        for col in df.columns:
+            print(f" - {col}")
+
         df.reset_index(inplace=True)
         df['time'] = df['time'].astype(str)
         return df.to_dict(orient='records')

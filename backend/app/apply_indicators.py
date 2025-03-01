@@ -48,8 +48,9 @@ def ta_indicator(df: pd.DataFrame, indicator_name: str, params: dict) -> Union[p
         if length <= 0:
             raise ValueError("'length' must be a positive integer.")
         result = ta.rsi(df['close'], length=length)
-        logger.info(f"RSI({length}) calculated.")
-        return result.to_frame(name=f'RSI_{length}')
+        result_name = f'RSI_{length}'
+        logger.info(f"RSI column: {result_name}")
+        return result.to_frame(name=result_name)
 
     elif indicator_name == 'vwap':
         anchor = params.get("anchor", 'start')
@@ -65,7 +66,9 @@ def ta_indicator(df: pd.DataFrame, indicator_name: str, params: dict) -> Union[p
             raise ValueError("'length' must be a positive integer.")
         std_dev = float(params.get("std_dev", 2))
         result = ta.bbands(df['close'], length=length, std=std_dev)
-        logger.info(f"Bollinger Bands (Length: {length}, Std Dev: {std_dev}) calculated.")
+        # Rename columns to make them identifiable
+        result.columns = [f'BBL_{length}', f'BBM_{length}', f'BBU_{length}', f'BBB_{length}', f'BBP_{length}']
+        logger.info(f"Bollinger Bands columns: {', '.join(result.columns)}")
         return result
 
     elif indicator_name == 'macd':
