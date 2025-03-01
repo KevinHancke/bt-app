@@ -59,29 +59,56 @@ if 'full_data' in st.session_state:
         st.session_state['indicators'] = []  # Each element: dict with type, params, active flag
 
     with st.form(key="indicator_form"):
-        new_indicator = st.selectbox("Indicator Type", options=["sma", "ema", "rsi", "bollinger"])
-        new_length = st.number_input("Length", min_value=1, value=10, key="length_input")
-        new_active = st.checkbox("Enable", value=True, key="active_toggle")
+        # Add VWAP and MACD to the indicator options
+        new_indicator = st.selectbox("Indicator Type", options=["sma", "ema", "rsi", "bollinger", "vwap", "macd"])
+        
+        # Conditional input fields based on indicator type
+        if new_indicator in ["sma", "ema", "rsi", "bollinger"]:
+            new_length = st.number_input("Length", min_value=1, value=10, key="length_input")
+            params = {"length": new_length}
+        elif new_indicator == "vwap":
+            new_length = st.number_input("Length", min_value=1, value=14, key="length_input")
+            params = {"length": new_length}
+        elif new_indicator == "macd":
+            # Additional parameters for MACD
+            col1, col2, col3 = st.columns(3)
+            fast = col1.number_input("Fast Period", min_value=1, value=12, key="fast_input")
+            slow = col2.number_input("Slow Period", min_value=1, value=26, key="slow_input")
+            signal = col3.number_input("Signal Period", min_value=1, value=9, key="signal_input")
+            params = {"fast": fast, "slow": slow, "signal": signal}
+        
         submitted_indicator = st.form_submit_button("Add Indicator")
         if submitted_indicator:
             st.session_state['indicators'].append({
                 "type": new_indicator,
-                "params": {"length": new_length},
-                "active": new_active
+                "params": params,
+                "active": True
             })
             st.success(f"Added {new_indicator} indicator.")
 
     st.write("Current Indicators:")
-    for idx, ind in enumerate(st.session_state['indicators']):
-        # Allow user to toggle active status for each indicator.
-        cols = st.columns([3, 1])
-        cols[0].write(f"{idx+1}. {ind['type'].upper()} with length {ind['params'].get('length')}")
-        new_status = cols[1].checkbox("Active", value=ind.get("active", True), key=f"active_{idx}")
-        st.session_state['indicators'][idx]["active"] = new_status
+    if st.session_state['indicators']:
+        for idx, ind in enumerate(st.session_state['indicators']):
+            # Use columns for layout - indicator name and delete button
+            col1, col2 = st.columns([4, 1])
+            col1.write(f"{idx+1}. {ind['type'].upper()} with length {ind['params'].get('length')}")
+            
+            # Add delete button for each indicator
+            if col2.button(f"Delete", key=f"del_ind_{idx}"):
+                st.session_state['indicators'].pop(idx)
+                st.experimental_rerun()
+        
+        # Add a button to clear all indicators
+        if st.button("Clear All Indicators"):
+            st.session_state['indicators'] = []
+            st.success("All indicators cleared")
+            st.experimental_rerun()
+    else:
+        st.info("No indicators added yet")
 
     if st.button("Apply Indicators"):
-        # Filter only active indicators
-        active_indicators = [ind for ind in st.session_state['indicators'] if ind.get("active")]
+        # Use all indicators instead of filtering for active ones
+        active_indicators = st.session_state['indicators']
         payload = {
             "ticker": ticker,
             "timeframe": timeframe,
@@ -213,16 +240,21 @@ if 'full_data' in st.session_state:
             
             # Check if we have any oscillator indicators that need separate panels
             has_rsi = any(ind['type'] == 'rsi' for ind in active_indicators)
-            # Add more oscillator checks as needed (MACD, etc.)
+            has_macd = any(ind['type'] == 'macd' for ind in active_indicators)
             
             # Import make_subplots if needed
             from plotly.subplots import make_subplots
             
             # Create subplot structure based on which oscillators are present
-            rows = 1 + (1 if has_rsi else 0)  # Main chart + optional RSI
+            rows = 1 + (1 if has_rsi else 0) + (1 if has_macd else 0)  # Main chart + optional RSI + optional MACD
             
             # Set row heights: main chart gets 70%, oscillators share the rest
-            row_heights = [0.7] + [0.3] if rows > 1 else [1.0]
+            if rows == 1:
+                row_heights = [1.0]
+            elif rows == 2:
+                row_heights = [0.7, 0.3]
+            else:  # 3 rows
+                row_heights = [0.6, 0.2, 0.2]
             
             # Create the figure with subplots
             fig = make_subplots(
@@ -233,6 +265,7 @@ if 'full_data' in st.session_state:
                 row_heights=row_heights,
                 subplot_titles=["Price" + (" with Indicators" if rows > 1 else "")]
                 + (["RSI"] if has_rsi else [])
+                + (["MACD"] if has_macd else [])
             )
             
             # Add candlestick to main chart (first row)
@@ -279,7 +312,7 @@ if 'full_data' in st.session_state:
                 length = ind['params'].get('length', 0)
                 
                 # Skip oscillators - they'll be in their own rows
-                if ind_type == 'rsi':
+                if ind_type == 'rsi' or ind_type == 'macd':
                     continue
                 # Skip Bollinger - already handled above
                 if ind_type == 'bollinger':
@@ -314,7 +347,9 @@ if 'full_data' in st.session_state:
                     )
             
             # Add RSI in its own panel if it exists
-            rsi_row = 2  # RSI would be in the second row
+            panel_row = 2  # Start with second row for oscillators
+            
+            # Handle RSI panel
             for ind in active_indicators:
                 if ind['type'] == 'rsi' and has_rsi:
                     length = ind['params'].get('length', 14)
@@ -330,7 +365,7 @@ if 'full_data' in st.session_state:
                                 line=dict(color='rgba(39, 174, 96, 0.9)', width=1.5),
                                 name=col_name
                             ),
-                            row=rsi_row, col=1
+                            row=panel_row, col=1
                         )
                         
                         # Add reference lines for RSI - fixed to use exact dates instead of normalized values
@@ -346,11 +381,81 @@ if 'full_data' in st.session_state:
                                 y0=level, 
                                 y1=level,
                                 line=dict(color="gray", width=1, dash="dash"),
-                                row=rsi_row, col=1
+                                row=panel_row, col=1
                             )
                         
                         # Set y-axis range for RSI
-                        fig.update_yaxes(range=[0, 100], row=rsi_row, col=1)
+                        fig.update_yaxes(range=[0, 100], row=panel_row, col=1)
+                    panel_row += 1  # Increment for next panel
+                
+            # Add MACD in its own panel if it exists
+            macd_row = 2 if not has_rsi else 3
+            for ind in active_indicators:
+                if ind['type'] == 'macd' and has_macd:
+                    # Get MACD parameters
+                    fast = ind['params'].get('fast', 12)
+                    slow = ind['params'].get('slow', 26)
+                    signal = ind['params'].get('signal', 9)
+                    
+                    # Check for MACD columns
+                    macd_col = f"MACD_{fast}_{slow}_{signal}"
+                    signal_col = f"MACDs_{fast}_{slow}_{signal}"
+                    hist_col = f"MACDh_{fast}_{slow}_{signal}"
+                    
+                    if macd_col in display_updated.columns:
+                        # Add MACD line
+                        fig.add_trace(
+                            go.Scatter(
+                                x=display_updated['time'],
+                                y=display_updated[macd_col],
+                                mode='lines',
+                                line=dict(color='#2962FF', width=1.5),
+                                name=f"MACD ({fast},{slow},{signal})"
+                            ),
+                            row=macd_row, col=1
+                        )
+                        
+                        # Add Signal line
+                        if signal_col in display_updated.columns:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=display_updated['time'],
+                                    y=display_updated[signal_col],
+                                    mode='lines',
+                                    line=dict(color='#FF6D00', width=1.5),
+                                    name=f"Signal ({signal})"
+                                ),
+                                row=macd_row, col=1
+                            )
+                        
+                        # Add Histogram as bar chart
+                        if hist_col in display_updated.columns:
+                            fig.add_trace(
+                                go.Bar(
+                                    x=display_updated['time'],
+                                    y=display_updated[hist_col],
+                                    marker=dict(
+                                        color=display_updated[hist_col].apply(
+                                            lambda x: 'rgba(0,255,0,0.5)' if x >= 0 else 'rgba(255,0,0,0.5)'
+                                        )
+                                    ),
+                                    name="Histogram"
+                                ),
+                                row=macd_row, col=1
+                            )
+                        
+                        # Add zero line reference
+                        min_date = display_updated['time'].min()
+                        max_date = display_updated['time'].max()
+                        fig.add_shape(
+                            type="line", 
+                            x0=min_date, 
+                            x1=max_date,
+                            y0=0, 
+                            y1=0,
+                            line=dict(color="gray", width=1, dash="dash"),
+                            row=macd_row, col=1
+                        )
             
             # Update layout for the entire figure
             fig.update_layout(
@@ -368,9 +473,6 @@ if 'full_data' in st.session_state:
             
             # Display the unified chart with shared x-axis
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Remove the separate RSI chart code - we already have it in the subplot
-            # The shared x-axis chart above is sufficient
             
         else:
             st.error(f"Error applying indicators: {response.text}")

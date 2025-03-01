@@ -53,10 +53,24 @@ def ta_indicator(df: pd.DataFrame, indicator_name: str, params: dict) -> Union[p
         return result.to_frame(name=result_name)
 
     elif indicator_name == 'vwap':
-        anchor = params.get("anchor", 'start')
-        result = ta.vwap(df['high'], df['low'], df['close'], df['volume'], anchor=anchor)
-        logger.info(f"VWAP({anchor}) calculated.")
-        return result.to_frame(name=f'VWAP_{anchor}')
+        # Get the anchor period (D, W, M)
+        anchor = params.get("anchor", "D")  # Default to Daily if not specified
+        
+        # Validate anchor parameter
+        if anchor not in ["D", "W", "M"]:
+            logger.warning(f"Invalid VWAP anchor: {anchor}. Using 'D' (Daily) as default.")
+            anchor = "D"
+            
+        # Calculate VWAP with the specified anchor
+        try:
+            result = ta.vwap(high=df['high'], low=df['low'], close=df['close'], 
+                            volume=df['volume'], anchor=anchor)
+            result_name = f'VWAP_{anchor}'
+            logger.info(f"VWAP column with {anchor} anchor: {result_name}")
+            return result.to_frame(name=result_name)
+        except Exception as e:
+            logger.error(f"Error calculating VWAP with anchor {anchor}: {e}")
+            raise ValueError(f"Failed to calculate VWAP: {e}")
 
     elif indicator_name == 'bollinger':
         if 'length' not in params:
@@ -76,7 +90,9 @@ def ta_indicator(df: pd.DataFrame, indicator_name: str, params: dict) -> Union[p
         slow = int(params.get("slow", 26))
         signal = int(params.get("signal", 9))
         result = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
-        logger.info(f"MACD (Fast: {fast}, Slow: {slow}, Signal: {signal}) calculated.")
+        # Rename columns to include parameters
+        result.columns = [f'MACD_{fast}_{slow}_{signal}', f'MACDs_{fast}_{slow}_{signal}', f'MACDh_{fast}_{slow}_{signal}']
+        logger.info(f"MACD columns: {', '.join(result.columns)}")
         return result
 
     else:
