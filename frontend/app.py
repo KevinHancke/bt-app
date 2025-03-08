@@ -3,6 +3,63 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 
+def create_condition_section(condition_type, operand_options):
+    """Create and manage trading conditions (buy or sell)"""
+    state_key = f'{condition_type}_conditions'
+    
+    st.subheader(f"Add {condition_type.title()} Conditions")
+    if state_key not in st.session_state:
+        st.session_state[state_key] = []
+    
+    with st.form(key=f'{condition_type}_condition_form'):
+        left = st.selectbox(f"{condition_type.title()} Condition Left Operand", 
+                           options=operand_options, 
+                           key=f'{condition_type}_left')
+        left_shift = st.number_input("Left Operand Shift", 
+                                    min_value=0, 
+                                    value=0, 
+                                    key=f'{condition_type}_left_shift')
+        comparator = st.selectbox("Comparator", 
+                                 options=[">", "<", "==", "!=", ">=", "<="], 
+                                 key=f'{condition_type}_comparator')
+        right = st.selectbox(f"{condition_type.title()} Condition Right Operand", 
+                            options=operand_options, 
+                            key=f'{condition_type}_right')
+        right_shift = st.number_input("Right Operand Shift", 
+                                     min_value=0, 
+                                     value=0, 
+                                     key=f'{condition_type}_right_shift')
+        submitted = st.form_submit_button(f"Add {condition_type.title()} Condition")
+        
+        if submitted:
+            condition = {
+                "left_operand": {"column": left, "shift": left_shift},
+                "comparator": comparator,
+                "right_operand": {"column": right, "shift": right_shift}
+            }
+            st.session_state[state_key].append(condition)
+            st.success(f"{condition_type.title()} condition added")
+    
+    # Display existing conditions
+    if st.session_state.get(state_key):
+        st.write(f"Current {condition_type.title()} Conditions ({len(st.session_state[state_key])})")
+        for i, cond in enumerate(st.session_state[state_key]):
+            col1, col2 = st.columns([4, 1])
+            condition_text = (f"{cond['left_operand']['column']} (shift {cond['left_operand']['shift']}) "
+                            f"{cond['comparator']} "
+                            f"{cond['right_operand']['column']} (shift {cond['right_operand']['shift']})")
+            col1.text(f"{i+1}. {condition_text}")
+            if col2.button(f"Delete", key=f"del_{condition_type}_{i}"):
+                st.session_state[state_key].pop(i)
+                st.experimental_rerun()
+        
+        if st.button(f"Clear All {condition_type.title()} Conditions"):
+            st.session_state[state_key] = []
+            st.success(f"All {condition_type} conditions cleared")
+            st.experimental_rerun()
+    else:
+        st.info(f"No {condition_type} conditions defined yet")
+
 st.title("Moon Tester")
 timeframe = st.selectbox("Select Timeframe", ["1D", "4h","1h", "15min"])
 ticker = st.selectbox("Select Ticker", ["BTC/USD", "SOL/USD", "JUP/USD"])
@@ -433,6 +490,8 @@ if 'full_data' in st.session_state:
         else:
             st.error(f"Error applying indicators: {response.text}")
 
+# UI to add buy/sell conditions
+    
     st.subheader("Add Buy Conditions")
     if 'buy_conditions' not in st.session_state:
         st.session_state['buy_conditions'] = []
@@ -455,86 +514,13 @@ if 'full_data' in st.session_state:
     # Debug what columns are available
     st.write(f"Condition options: {operand_options}")
 
-    with st.form(key='buy_condition_form'):
-        buy_left = st.selectbox("Buy Condition Left Operand", options=operand_options, key='buy_left')
-        buy_left_shift = st.number_input("Left Operand Shift", min_value=0, value=0, key='buy_left_shift')
-        buy_comparator = st.selectbox("Comparator", options=[">", "<", "==", "!=", ">=", "<="], key='buy_comparator')
-        buy_right = st.selectbox("Buy Condition Right Operand", options=operand_options, key='buy_right')
-        buy_right_shift = st.number_input("Right Operand Shift", min_value=0, value=0, key='buy_right_shift')
-        submitted_buy = st.form_submit_button("Add Buy Condition")
-        if submitted_buy:
-            condition = {
-                "left_operand": {"column": buy_left, "shift": buy_left_shift},
-                "comparator": buy_comparator,
-                "right_operand": {"column": buy_right, "shift": buy_right_shift}
-            }
-            st.session_state['buy_conditions'].append(condition)
-            st.success("Buy condition added")
+    # Create the buy conditions section
+    create_condition_section("buy", operand_options)
     
-    # Display and manage existing buy conditions
-    if st.session_state.get('buy_conditions'):
-        st.write(f"Current Buy Conditions ({len(st.session_state['buy_conditions'])})")
-        for i, cond in enumerate(st.session_state['buy_conditions']):
-            col1, col2 = st.columns([4, 1])
-            condition_text = (f"{cond['left_operand']['column']} (shift {cond['left_operand']['shift']}) "
-                            f"{cond['comparator']} "
-                            f"{cond['right_operand']['column']} (shift {cond['right_operand']['shift']})")
-            col1.text(f"{i+1}. {condition_text}")
-            # Add delete button for each condition
-            if col2.button(f"Delete", key=f"del_buy_{i}"):
-                st.session_state['buy_conditions'].pop(i)
-                st.experimental_rerun()
-        
-        # Add a button to clear all conditions
-        if st.button("Clear All Buy Conditions"):
-            st.session_state['buy_conditions'] = []
-            st.success("All buy conditions cleared")
-            st.experimental_rerun()
-    else:
-        st.info("No buy conditions defined yet")
+    # Create the sell conditions section
+    create_condition_section("sell", operand_options)
 
-    st.subheader("Add Sell Conditions")
-    if 'sell_conditions' not in st.session_state:
-        st.session_state['sell_conditions'] = []
-    
-    with st.form(key='sell_condition_form'):
-        sell_left = st.selectbox("Sell Condition Left Operand", options=operand_options, key='sell_left')
-        sell_left_shift = st.number_input("Left Operand Shift", min_value=0, value=0, key='sell_left_shift')
-        sell_comparator = st.selectbox("Comparator", options=[">", "<", "==", "!=", ">=", "<="], key='sell_comparator')
-        sell_right = st.selectbox("Sell Condition Right Operand", options=operand_options, key='sell_right')
-        sell_right_shift = st.number_input("Right Operand Shift", min_value=0, value=0, key='sell_right_shift')
-        submitted_sell = st.form_submit_button("Add Sell Condition")
-        if submitted_sell:
-            condition = {
-                "left_operand": {"column": sell_left, "shift": sell_left_shift},
-                "comparator": sell_comparator,
-                "right_operand": {"column": sell_right, "shift": sell_right_shift}
-            }
-            st.session_state['sell_conditions'].append(condition)
-            st.success("Sell condition added")
-    
-    # Display and manage existing sell conditions
-    if st.session_state.get('sell_conditions'):
-        st.write(f"Current Sell Conditions ({len(st.session_state['sell_conditions'])})")
-        for i, cond in enumerate(st.session_state['sell_conditions']):
-            col1, col2 = st.columns([4, 1])
-            condition_text = (f"{cond['left_operand']['column']} (shift {cond['left_operand']['shift']}) "
-                            f"{cond['comparator']} "
-                            f"{cond['right_operand']['column']} (shift {cond['right_operand']['shift']})")
-            col1.text(f"{i+1}. {condition_text}")
-            # Add delete button for each condition
-            if col2.button(f"Delete", key=f"del_sell_{i}"):
-                st.session_state['sell_conditions'].pop(i)
-                st.experimental_rerun()
-        
-        # Add a button to clear all conditions
-        if st.button("Clear All Sell Conditions"):
-            st.session_state['sell_conditions'] = []
-            st.success("All sell conditions cleared")
-            st.experimental_rerun()
-    else:
-        st.info("No sell conditions defined yet")
-
+# UI to run backtest
     st.subheader("Run Backtest")
     tp_value = st.number_input("Take Profit %", value=4)
     sl_value = st.number_input("Stop Loss %", value=3)
