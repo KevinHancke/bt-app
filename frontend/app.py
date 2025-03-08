@@ -3,6 +3,55 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 
+# Configuration for different indicator types
+indicator_config = {
+    "sma": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 10}]},
+    "ema": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 10}]},
+    "rsi": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 14}]},
+    "bollinger": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 20}]},
+    "vwap": {"params": [{"name": "anchor", "type": "selectbox", "options": ["D", "W", "M"], "default": "D"}]},
+    "macd": {"params": [
+        {"name": "fast", "type": "number_input", "min_value": 1, "default": 12},
+        {"name": "slow", "type": "number_input", "min_value": 1, "default": 26},
+        {"name": "signal", "type": "number_input", "min_value": 1, "default": 9}
+    ]}
+}
+
+def render_indicator_params(indicator_type):
+    """Render parameter form fields and return collected parameters"""
+    params = {}
+    
+    if indicator_type not in indicator_config:
+        st.error(f"Unknown indicator type: {indicator_type}")
+        return params
+    
+    config = indicator_config[indicator_type]
+    
+    # For indicators with multiple parameters (like MACD), create columns
+    if len(config["params"]) > 2:
+        cols = st.columns(len(config["params"]))
+    else:
+        cols = [st] * len(config["params"])  # Use single column layout
+        
+    # Render each parameter based on its type
+    for i, param in enumerate(config["params"]):
+        if param["type"] == "number_input":
+            params[param["name"]] = cols[i].number_input(
+                param["name"].title(), 
+                min_value=param.get("min_value", 1), 
+                value=param.get("default", 10),
+                key=f"{indicator_type}_{param['name']}_input"
+            )
+        elif param["type"] == "selectbox":
+            params[param["name"]] = cols[i].selectbox(
+                param["name"].title(), 
+                options=param.get("options", []),
+                index=param.get("options", []).index(param.get("default")) if param.get("default") in param.get("options", []) else 0,
+                key=f"{indicator_type}_{param['name']}_input"
+            )
+            
+    return params
+
 def create_condition_section(condition_type, operand_options):
     """Create and manage trading conditions (buy or sell)"""
     state_key = f'{condition_type}_conditions'
@@ -127,20 +176,9 @@ if 'full_data' in st.session_state:
     )
 
     with st.form(key="indicator_form"):
-        # Conditional input fields based on indicator type stored in session state
-        if st.session_state['indicator_type'] in ["sma", "ema", "rsi", "bollinger"]:
-            new_length = st.number_input("Length", min_value=1, value=10, key="length_input")
-            params = {"length": new_length}
-        elif st.session_state['indicator_type'] == "vwap":
-            new_anchor = st.selectbox("Anchor", options=["D", "W", "M"], key="anchor_input")
-            params = {"anchor": new_anchor}
-        elif st.session_state['indicator_type'] == "macd":
-            # Additional parameters for MACD
-            col1, col2, col3 = st.columns(3)
-            fast = col1.number_input("Fast Period", min_value=1, value=12, key="fast_input")
-            slow = col2.number_input("Slow Period", min_value=1, value=26, key="slow_input")
-            signal = col3.number_input("Signal Period", min_value=1, value=9, key="signal_input")
-            params = {"fast": fast, "slow": slow, "signal": signal}
+
+        # Render parameters based on configuration
+        params = render_indicator_params(st.session_state['indicator_type'])
         
         submitted_indicator = st.form_submit_button("Add Indicator")
         if submitted_indicator:
@@ -491,10 +529,6 @@ if 'full_data' in st.session_state:
             st.error(f"Error applying indicators: {response.text}")
 
 # UI to add buy/sell conditions
-    
-    st.subheader("Add Buy Conditions")
-    if 'buy_conditions' not in st.session_state:
-        st.session_state['buy_conditions'] = []
 
     # Prepare options for buy/sell condition operand selectboxes.
     default_fields = ["open", "high", "low", "close"]
