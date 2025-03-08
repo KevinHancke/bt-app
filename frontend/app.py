@@ -211,27 +211,16 @@ if st.button("Load Data"):
         full_data_df = pd.DataFrame(response.json())
         full_data_df['time'] = pd.to_datetime(full_data_df['time'])
         st.session_state['full_data'] = full_data_df
+        st.success(f"Data Loaded! Full dataset: {len(full_data_df)} bars")
         
-        # Create a date-filtered display dataset
+        # Create initial display data - limit to 150 bars for performance
         display_df = full_data_df.copy()
+        if len(display_df) > 150:
+            display_df = display_df.tail(150)
+            st.info(f"Showing last 150 out of {len(full_data_df)} bars")
         
-        # Add date range selector based on min and max dates in the data
-        min_date = display_df['time'].min().date()
-        max_date = display_df['time'].max().date()
-        date_range = st.date_input("Select Date Range", [min_date, max_date])
-        
-        if isinstance(date_range, list) and len(date_range) == 2:
-            start_date, end_date = date_range
-            display_df = display_df[(display_df['time'].dt.date >= start_date) & (display_df['time'].dt.date <= end_date)]
-            # Store the date range for future use
-            st.session_state['date_range'] = (start_date, end_date)
-        
-        # Limit to 100 data points for display only
-        if len(display_df) > 100:
-            display_df = display_df.tail(100)
-        
+        # Store display data in session state
         st.session_state['display_data'] = display_df
-        st.success(f"Data Loaded! Full dataset: {len(full_data_df)} bars, Display: {len(display_df)} bars")
         
         # Render initial candlestick chart
         fig = go.Figure(data=[go.Candlestick(
@@ -332,9 +321,9 @@ if 'full_data' in st.session_state:
                 display_updated = display_updated[(display_updated['time'].dt.date >= start_date) & 
                                                  (display_updated['time'].dt.date <= end_date)]
             
-            # Limit to 100 data points for display only
-            if len(display_updated) > 100:
-                display_updated = display_updated.tail(100)
+            # Limit to 150 data points for display only
+            if len(display_updated) > 150:
+                display_updated = display_updated.tail(150)
                 
             st.session_state['display_data'] = display_updated
             
