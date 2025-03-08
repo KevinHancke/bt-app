@@ -5,8 +5,8 @@ import plotly.graph_objects as go
 
 # Configuration for different indicator types
 indicator_config = {
-    "sma": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 10}]},
-    "ema": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 10}]},
+    "sma": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 21}]},
+    "ema": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 50}]},
     "rsi": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 14}]},
     "bollinger": {"params": [{"name": "length", "type": "number_input", "min_value": 1, "default": 20}]},
     "vwap": {"params": [{"name": "anchor", "type": "selectbox", "options": ["D", "W", "M"], "default": "D"}]},
@@ -51,6 +51,93 @@ def render_indicator_params(indicator_type):
             )
             
     return params
+
+def generate_indicator_color(ind_type, params):
+    """Generate color for an indicator with variance based on parameters"""
+    # Base colors for different indicator types
+    color_map = {
+        'sma': 'rgba(46, 134, 193, 0.9)',    # Blue
+        'ema': 'rgba(142, 68, 173, 0.9)',    # Purple
+        'rsi': 'rgba(39, 174, 96, 0.9)',     # Green
+        'macd': 'rgba(230, 126, 34, 0.9)',   # Orange
+        'vwap': 'rgba(241, 196, 15, 0.9)',   # Yellow
+    }
+    
+    # Get base color
+    base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
+    
+    # Get variance parameter based on indicator type
+    if ind_type == 'vwap':
+        anchor = params.get('anchor', 'D')
+        variance_param = hash(anchor) % 5
+    elif ind_type == 'macd':
+        fast = params.get('fast', 12)
+        slow = params.get('slow', 26)
+        variance_param = (fast + slow) % 5
+    else:
+        length = params.get('length', 0)
+        variance_param = length % 5
+    
+    # Calculate color variance
+    color_variance = 0.7 + variance_param * 0.1  # Small color variation
+    
+    # Create a color with slight variation
+    r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
+    r = min(255, int(r * color_variance))
+    g = min(255, int(g * color_variance))
+    b = min(255, int(b * color_variance))
+    return f'rgba({r}, {g}, {b}, 0.9)'
+
+def create_price_chart(fig, data, row=1, col=1):
+    """Add price candlesticks to figure"""
+    fig.add_trace(
+        go.Candlestick(
+            x=data['time'],
+            open=data['open'],
+            high=data['high'],
+            low=data['low'],
+            close=data['close'],
+            name="Price"
+        ),
+        row=row, col=col
+    )
+    return fig
+
+def add_indicator_to_chart(fig, data, indicator_info, row=1, col=1):
+    """Add a single indicator to the figure based on its type"""
+    ind_type = indicator_info['type']
+    
+    # Get the appropriate column name
+    if ind_type == 'vwap':
+        anchor = indicator_info['params'].get('anchor', 'D')
+        col_name = f"{ind_type.upper()}_{anchor}"
+    elif ind_type == 'macd':
+        fast = indicator_info['params'].get('fast', 12)
+        slow = indicator_info['params'].get('slow', 26)
+        signal = indicator_info['params'].get('signal', 9)
+        col_name = f"MACD_{fast}_{slow}_{signal}"
+    else:
+        length = indicator_info['params'].get('length', 0)
+        col_name = f"{ind_type.upper()}_{length}"
+    
+    # Only add if column exists
+    if col_name in data.columns:
+        # Generate color
+        color = generate_indicator_color(ind_type, indicator_info['params'])
+        
+        # Add to figure
+        fig.add_trace(
+            go.Scatter(
+                x=data['time'],
+                y=data[col_name],
+                mode='lines',
+                line=dict(color=color, width=1.5),
+                name=col_name
+            ),
+            row=row, col=col
+        )
+    
+    return fig
 
 def create_condition_section(condition_type, operand_options):
     """Create and manage trading conditions (buy or sell)"""
@@ -305,19 +392,9 @@ if 'full_data' in st.session_state:
                 + (["RSI"] if has_rsi else [])
                 + (["MACD"] if has_macd else [])
             )
-            
-            # Add candlestick to main chart (first row)
-            fig.add_trace(
-                go.Candlestick(
-                    x=display_updated['time'],
-                    open=display_updated['open'],
-                    high=display_updated['high'],
-                    low=display_updated['low'],
-                    close=display_updated['close'],
-                    name="Price"
-                ),
-                row=1, col=1
-            )
+
+            # Add price chart to first row
+            fig = create_price_chart(fig, display_updated, row=1, col=1)
             
             # Plot Bollinger Bands on main chart
             # ...existing BB plotting code, but add row=1, col=1 to each add_trace call...
@@ -343,7 +420,7 @@ if 'full_data' in st.session_state:
                         ),
                         row=1, col=1  # Always on main price chart
                     )
-            
+
             # Plot overlay indicators on the price chart
             for ind in active_indicators:
                 ind_type = ind['type']
@@ -355,50 +432,12 @@ if 'full_data' in st.session_state:
                 if ind_type == 'bollinger':
                     continue
                 
-                # Handle column name construction differently based on indicator type
-                if ind_type == 'vwap':
-                    anchor = ind['params'].get('anchor', 'D')
-                    col_name = f"{ind_type.upper()}_{anchor}"
-                else:
-                    length = ind['params'].get('length', 0)
-                    col_name = f"{ind_type.upper()}_{length}"
-                
-                # Get color with variance
-                base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
-                
-                # For multiple indicators of the same type, slightly modify the color
-                if ind_type == 'vwap':
-                    # Use the hash of the anchor to create variance for VWAP
-                    anchor = ind['params'].get('anchor', 'D')
-                    variance_param = hash(anchor) % 5
-                else:
-                    # For other indicators, use length
-                    length = ind['params'].get('length', 0)
-                    variance_param = length % 5
-                
-                color_variance = 0.7 + variance_param * 0.1  # Small color variation
-                
-                # Create a color with slight variation
-                r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
-                r = min(255, int(r * color_variance))
-                g = min(255, int(g * color_variance))
-                b = min(255, int(b * color_variance))
-                indicator_color = f'rgba({r}, {g}, {b}, 0.9)'
-                
-                if col_name in display_updated.columns:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=display_updated['time'],
-                            y=display_updated[col_name],
-                            mode='lines',
-                            line=dict(color=indicator_color, width=1.5),
-                            name=col_name
-                        ),
-                        row=1, col=1  # Always on the main price chart
-                    )
+                # Add the indicator to the chart
+                fig = add_indicator_to_chart(fig, display_updated, ind, row=1, col=1)
             
             # Add RSI in its own panel if it exists
-            panel_row = 2  # Start with second row for oscillators
+            rsi_row = 2 if has_rsi else None  # Fixed row for RSI
+            macd_row = 3 if has_rsi and has_macd else (2 if has_macd else None)  # Fixed row for MACD
             
             # Handle RSI panel
             for ind in active_indicators:
@@ -416,7 +455,7 @@ if 'full_data' in st.session_state:
                                 line=dict(color='rgba(39, 174, 96, 0.9)', width=1.5),
                                 name=col_name
                             ),
-                            row=panel_row, col=1
+                            row=rsi_row, col=1
                         )
                         
                         # Add reference lines for RSI - fixed to use exact dates instead of normalized values
@@ -432,15 +471,13 @@ if 'full_data' in st.session_state:
                                 y0=level, 
                                 y1=level,
                                 line=dict(color="gray", width=1, dash="dash"),
-                                row=panel_row, col=1
+                                row=rsi_row, col=1
                             )
                         
                         # Set y-axis range for RSI
-                        fig.update_yaxes(range=[0, 100], row=panel_row, col=1)
-                    panel_row += 1  # Increment for next panel
+                        fig.update_yaxes(range=[0, 100], row=rsi_row, col=1)
                 
             # Add MACD in its own panel if it exists
-            macd_row = 2 if not has_rsi else 3
             for ind in active_indicators:
                 if ind['type'] == 'macd' and has_macd:
                     # Get MACD parameters
@@ -452,6 +489,10 @@ if 'full_data' in st.session_state:
                     macd_col = f"MACD_{fast}_{slow}_{signal}"
                     signal_col = f"MACDs_{fast}_{slow}_{signal}"
                     hist_col = f"MACDh_{fast}_{slow}_{signal}"
+                    
+                    # Debug column names
+                    st.write(f"Looking for MACD columns: {macd_col}, {signal_col}, {hist_col}")
+                    st.write(f"Available columns: {[col for col in display_updated.columns if 'MACD' in col]}")
                     
                     if macd_col in display_updated.columns:
                         # Add MACD line
