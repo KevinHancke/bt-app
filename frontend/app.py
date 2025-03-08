@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 st.title("Moon Tester")
-timeframe = st.selectbox("Select Timeframe", ["1D", "1h", "15min"])
+timeframe = st.selectbox("Select Timeframe", ["1D", "4h","1h", "15min"])
 ticker = st.selectbox("Select Ticker", ["BTC/USD", "SOL/USD", "JUP/USD"])
 
 # UI to load data
@@ -57,19 +57,27 @@ if 'full_data' in st.session_state:
     st.subheader("Manage Indicators")
     if 'indicators' not in st.session_state:
         st.session_state['indicators'] = []  # Each element: dict with type, params, active flag
+    
+    # Initialize the indicator_type in session state if it doesn't exist
+    if 'indicator_type' not in st.session_state:
+        st.session_state['indicator_type'] = "sma"
+    
+    # Move this outside the form so it triggers a rerun when changed
+    new_indicator = st.selectbox(
+        "Indicator Type", 
+        options=["sma", "ema", "rsi", "bollinger", "vwap", "macd"],
+        key="indicator_type"
+    )
 
     with st.form(key="indicator_form"):
-        # Add VWAP and MACD to the indicator options
-        new_indicator = st.selectbox("Indicator Type", options=["sma", "ema", "rsi", "bollinger", "vwap", "macd"])
-        
-        # Conditional input fields based on indicator type
-        if new_indicator in ["sma", "ema", "rsi", "bollinger"]:
+        # Conditional input fields based on indicator type stored in session state
+        if st.session_state['indicator_type'] in ["sma", "ema", "rsi", "bollinger"]:
             new_length = st.number_input("Length", min_value=1, value=10, key="length_input")
             params = {"length": new_length}
-        elif new_indicator == "vwap":
-            new_length = st.number_input("Length", min_value=1, value=14, key="length_input")
-            params = {"length": new_length}
-        elif new_indicator == "macd":
+        elif st.session_state['indicator_type'] == "vwap":
+            new_anchor = st.selectbox("Anchor", options=["D", "W", "M"], key="anchor_input")
+            params = {"anchor": new_anchor}
+        elif st.session_state['indicator_type'] == "macd":
             # Additional parameters for MACD
             col1, col2, col3 = st.columns(3)
             fast = col1.number_input("Fast Period", min_value=1, value=12, key="fast_input")
@@ -80,18 +88,26 @@ if 'full_data' in st.session_state:
         submitted_indicator = st.form_submit_button("Add Indicator")
         if submitted_indicator:
             st.session_state['indicators'].append({
-                "type": new_indicator,
+                "type": st.session_state['indicator_type'],
                 "params": params,
                 "active": True
             })
-            st.success(f"Added {new_indicator} indicator.")
+            st.success(f"Added {st.session_state['indicator_type']} indicator.")
 
     st.write("Current Indicators:")
     if st.session_state['indicators']:
         for idx, ind in enumerate(st.session_state['indicators']):
             # Use columns for layout - indicator name and delete button
             col1, col2 = st.columns([4, 1])
-            col1.write(f"{idx+1}. {ind['type'].upper()} with length {ind['params'].get('length')}")
+            if ind['type'] == 'vwap':
+                col1.write(f"{idx+1}. {ind['type'].upper()} with anchor {ind['params'].get('anchor')}")
+            elif ind['type'] == 'macd':
+                fast = ind['params'].get('fast')
+                slow = ind['params'].get('slow')
+                signal = ind['params'].get('signal')
+                col1.write(f"{idx+1}. {ind['type'].upper()} with fast={fast}, slow={slow}, signal={signal}")
+            else:
+                col1.write(f"{idx+1}. {ind['type'].upper()} with length {ind['params'].get('length')}")
             
             # Add delete button for each indicator
             if col2.button(f"Delete", key=f"del_ind_{idx}"):
@@ -213,14 +229,28 @@ if 'full_data' in st.session_state:
                 if ind_type == 'bollinger':
                     continue
                 
-                length = ind['params'].get('length', 0)
-                col_name = f"{ind_type.upper()}_{length}"
-                
+                # Handle column name construction differently based on indicator type
+                if ind_type == 'vwap':
+                    anchor = ind['params'].get('anchor', 'D')
+                    col_name = f"{ind_type.upper()}_{anchor}"
+                else:
+                    length = ind['params'].get('length', 0)
+                    col_name = f"{ind_type.upper()}_{length}"
+
                 # Get a base color for this indicator type
                 base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
                 
                 # For multiple indicators of the same type, slightly modify the color
-                color_variance = 0.7 + (length % 5) * 0.1  # Small color variation based on length
+                if ind_type == 'vwap':
+                    # Use the hash of the anchor to create variance for VWAP
+                    anchor = ind['params'].get('anchor', 'D')
+                    variance_param = hash(anchor) % 5
+                else:
+                    # For other indicators, use length
+                    length = ind['params'].get('length', 0)
+                    variance_param = length % 5
+                
+                color_variance = 0.7 + variance_param * 0.1  # Small color variation
                 
                 # Create a color with slight variation
                 r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
@@ -309,7 +339,6 @@ if 'full_data' in st.session_state:
             # Plot overlay indicators on the price chart
             for ind in active_indicators:
                 ind_type = ind['type']
-                length = ind['params'].get('length', 0)
                 
                 # Skip oscillators - they'll be in their own rows
                 if ind_type == 'rsi' or ind_type == 'macd':
@@ -318,14 +347,28 @@ if 'full_data' in st.session_state:
                 if ind_type == 'bollinger':
                     continue
                 
-                col_name = f"{ind_type.upper()}_{length}"
+                # Handle column name construction differently based on indicator type
+                if ind_type == 'vwap':
+                    anchor = ind['params'].get('anchor', 'D')
+                    col_name = f"{ind_type.upper()}_{anchor}"
+                else:
+                    length = ind['params'].get('length', 0)
+                    col_name = f"{ind_type.upper()}_{length}"
                 
                 # Get color with variance
-                # ...existing color code...
                 base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
                 
                 # For multiple indicators of the same type, slightly modify the color
-                color_variance = 0.7 + (length % 5) * 0.1
+                if ind_type == 'vwap':
+                    # Use the hash of the anchor to create variance for VWAP
+                    anchor = ind['params'].get('anchor', 'D')
+                    variance_param = hash(anchor) % 5
+                else:
+                    # For other indicators, use length
+                    length = ind['params'].get('length', 0)
+                    variance_param = length % 5
+                
+                color_variance = 0.7 + variance_param * 0.1  # Small color variation
                 
                 # Create a color with slight variation
                 r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
