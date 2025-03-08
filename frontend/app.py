@@ -159,20 +159,7 @@ if 'full_data' in st.session_state:
             # Separate indicators into overlay and separate indicators
             overlay_indicators = ['SMA', 'EMA', 'VWAP', 'BBL', 'BBM', 'BBU']
             oscillator_indicators = ['RSI', 'MACD']
-            
-            # First, create the main price chart with overlay indicators
-            fig_price = go.Figure()
-            
-            # Add candlestick chart
-            fig_price.add_trace(go.Candlestick(
-                x=display_updated['time'],
-                open=display_updated['open'],
-                high=display_updated['high'],
-                low=display_updated['low'],
-                close=display_updated['close'],
-                name="Price"
-            ))
-            
+
             # Create a color mapping for indicator types
             color_map = {
                 'sma': 'rgba(46, 134, 193, 0.9)',    # Blue
@@ -193,80 +180,6 @@ if 'full_data' in st.session_state:
                 if length not in bb_groups:
                     bb_groups[length] = []
                 bb_groups[length].append(col)
-            
-            # Plot grouped Bollinger Bands with consistent styling
-            for length, cols in bb_groups.items():
-                # Choose a color for this BB group
-                bb_color = f"rgba({hash(length) % 255}, {(hash(length) * 7) % 255}, {(hash(length) * 13) % 255}, 0.7)"
-                
-                for col in sorted(cols):  # Sort to ensure consistent order (BBL, BBM, BBU)
-                    line_style = 'solid'
-                    if col.startswith('BBL_'):
-                        line_style = 'dash'
-                    elif col.startswith('BBU_'):
-                        line_style = 'dash'
-                        
-                    # Add to plot with consistent styling
-                    fig_price.add_trace(go.Scatter(
-                        x=display_updated['time'],
-                        y=display_updated[col],
-                        mode='lines',
-                        line=dict(color=bb_color, dash=line_style, width=1),
-                        name=f"BB_{length}" if col.startswith('BBM_') else f"{col}",
-                        legendgroup=f"BB_{length}",
-                        showlegend=col.startswith('BBM_')  # Only show legend for middle band
-                    ))
-            
-            # Plot overlay indicators on the price chart
-            for ind in active_indicators:
-                ind_type = ind['type']
-                
-                # Skip oscillator indicators - they'll be in separate charts
-                if any(ind_type.upper().startswith(osc) for osc in oscillator_indicators):
-                    continue
-                    
-                # Skip Bollinger Bands - already plotted
-                if ind_type == 'bollinger':
-                    continue
-                
-                # Handle column name construction differently based on indicator type
-                if ind_type == 'vwap':
-                    anchor = ind['params'].get('anchor', 'D')
-                    col_name = f"{ind_type.upper()}_{anchor}"
-                else:
-                    length = ind['params'].get('length', 0)
-                    col_name = f"{ind_type.upper()}_{length}"
-
-                # Get a base color for this indicator type
-                base_color = color_map.get(ind_type, f'rgba({hash(ind_type) % 255}, {(hash(ind_type) * 13) % 255}, {(hash(ind_type) * 23) % 255}, 0.9)')
-                
-                # For multiple indicators of the same type, slightly modify the color
-                if ind_type == 'vwap':
-                    # Use the hash of the anchor to create variance for VWAP
-                    anchor = ind['params'].get('anchor', 'D')
-                    variance_param = hash(anchor) % 5
-                else:
-                    # For other indicators, use length
-                    length = ind['params'].get('length', 0)
-                    variance_param = length % 5
-                
-                color_variance = 0.7 + variance_param * 0.1  # Small color variation
-                
-                # Create a color with slight variation
-                r, g, b = [int(c) for c in base_color.strip('rgba(').split(',')[:3]]
-                r = min(255, int(r * color_variance))
-                g = min(255, int(g * color_variance))
-                b = min(255, int(b * color_variance))
-                indicator_color = f'rgba({r}, {g}, {b}, 0.9)'
-                
-                if col_name in display_updated.columns:
-                    fig_price.add_trace(go.Scatter(
-                        x=display_updated['time'],
-                        y=display_updated[col_name],
-                        mode='lines',
-                        line=dict(color=indicator_color, width=1.5),
-                        name=col_name
-                    ))
             
             # Check if we have any oscillator indicators that need separate panels
             has_rsi = any(ind['type'] == 'rsi' for ind in active_indicators)
