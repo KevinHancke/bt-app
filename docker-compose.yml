@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: bt-app-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+    networks:
+      - bt-network
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: bt-app-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend/assets:/app/assets
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_URL=http://backend:8000
+    networks:
+      - bt-network
+    restart: unless-stopped
+
+networks:
+  bt-network:
+    driver: bridge

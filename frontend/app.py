@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 import os
 from PIL import Image
 
+# Get backend URL from environment variable or use default
+BACKEND_URL = os.environ.get('BACKEND_URL', 'http://localhost:8000')
+
 # Hide the hamburger menu and customize footer
 st.markdown("""
 <style>
@@ -241,7 +244,7 @@ ticker = st.selectbox("Select Ticker", ["BTC/USD", "SOL/USD", "JUP/USD"])
 # UI to load data
 if st.button("Load Data"):
     response = requests.get(
-        "http://localhost:8000/api/default_chart",
+        f"{BACKEND_URL}/api/default_chart",
         params={"timeframe": timeframe, "ticker": ticker}
     )
     if response.status_code == 200:
@@ -339,7 +342,7 @@ if 'full_data' in st.session_state:
             "timeframe": timeframe,
             "indicators": active_indicators
         }
-        response = requests.post("http://localhost:8000/api/apply_indicators", json=payload)
+        response = requests.post(f"{BACKEND_URL}/api/apply_indicators", json=payload)
         if response.status_code == 200:
             # Update the full dataset with indicators
             full_data_updated = pd.DataFrame(response.json())
@@ -652,7 +655,7 @@ if 'full_data' in st.session_state:
             }
             
             with st.spinner('Running backtest...'):
-                response = requests.post("http://localhost:8000/custom_backtest", json=payload)
+                response = requests.post(f"{BACKEND_URL}/custom_backtest", json=payload)
             
             if response.status_code == 200:
                 result = response.json()
