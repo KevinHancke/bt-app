@@ -2,6 +2,26 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.graph_objects as go
+import os
+from PIL import Image
+
+# Hide the hamburger menu and customize footer
+st.markdown("""
+<style>
+    /* Hide the hamburger menu */
+    #MainMenu {visibility: hidden;}
+    
+    /* Hide Streamlit footer completely */
+    footer {visibility: hidden;}
+    
+    /* Remove the footer space which still shows up */
+    .block-container {
+        padding-bottom: 0px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
 
 # Configuration for different indicator types
 indicator_config = {
@@ -196,7 +216,25 @@ def create_condition_section(condition_type, operand_options):
     else:
         st.info(f"No {condition_type} conditions defined yet")
 
-st.title("Moon Tester")
+
+# Get the directory of the current script
+current_dir = os.path.dirname(os.path.abspath(__file__))
+logo_path = os.path.join(current_dir, "assets", "moon-logo.png")
+
+# Create a row with the logo and title
+col1, col2 = st.columns([1, 8])  # Adjust the ratio based on your logo size
+
+# Display logo in the first column
+if os.path.exists(logo_path):
+    col1.image(logo_path, width=80)  # Adjust width as needed
+else:
+    col1.error("Logo not found")
+
+# Display title in the second column
+col2.title("MoonTester")
+
+
+
 timeframe = st.selectbox("Select Timeframe", ["1D", "4h","1h", "15min"])
 ticker = st.selectbox("Select Ticker", ["BTC/USD", "SOL/USD", "JUP/USD"])
 
@@ -735,3 +773,14 @@ if 'full_data' in st.session_state:
                     st.write("No backtest stats available for account sizes.")
             else:
                 st.error(f"Error running backtest: {response.text}")
+
+# At the very end of your app
+# Replace your current footer with this
+st.markdown("""
+<div style="position: fixed; bottom: 2vh; left: 0; right: 0; display: flex; justify-content: center; align-items: center; padding: 10px 0; background: none;">
+    <p style="font-size: 1rem; color: #ababab; margin: 0;">
+        Made with ❤️ by&nbsp;&nbsp;
+        <a href="https://github.com/KevinHancke" target="_blank">KevinHancke</a>
+    </p>
+</div>
+""", unsafe_allow_html=True)
