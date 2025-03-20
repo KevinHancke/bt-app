@@ -780,7 +780,7 @@ if 'full_data' in st.session_state:
 # At the very end of your app
 # Replace your current footer with this
 st.markdown("""
-<div style="position: fixed; bottom: 2vh; left: 0; right: 0; display: flex; justify-content: center; align-items: center; padding: 10px 0; background: none;">
+<div style="position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; align-items: center; padding: 10px 0; background: black; border-top: 1px solid #bbb;">
     <p style="font-size: 1rem; color: #ababab; margin: 0;">
         Made with ❤️ by&nbsp;&nbsp;
         <a href="https://github.com/KevinHancke" target="_blank">KevinHancke</a>
